@@ -8,7 +8,6 @@ High level interface to `IKEv2 protocol <http://tools.ietf.org/html/draft-kivine
 """
 from enum import IntEnum
 from functools import reduce
-from hmac import HMAC
 import logging
 import operator
 import os
@@ -116,6 +115,7 @@ class sm4cbc():
         return padding
 
 sm4 = sm4cbc()
+
 
 class IkeError(Exception):
     pass
@@ -249,11 +249,11 @@ class ike_initiator(IKE):
         pay.append(payloads.Nonce(nonce = enN,next_payload=payloads.Type.ID))
         pay.append(payloads.ID(Idi_data = enIDI,next_payload=payloads.Type.CERT))
         pay.append(payloads.CERT(cert_data = open('../ca.der').read(),next_payload=payloads.Type.CERT))
-        pay.append(payloads.CERT(cert_data = open('../client.der').read(),next_payload=payloads.Type.SIGNATURE))
+        pay.append(payloads.CERT(cert_data = open('../server.der').read(),next_payload=payloads.Type.SIGNATURE))
         
         self.id_data = idi_data   ###
-        message = self.K + self.Nb + self.id_data + binascii.a2b_hex("04") + open('../client.der').read()
-        sig_data = RSA_sign(message,'../clientkey.pem','123456')
+        message = self.K + self.Nb + self.id_data + binascii.a2b_hex("04") + open('../server.der').read()
+        sig_data = RSA_sign(message,'../serverkey.pem','123456')
         pay.append(payloads.SIGNATURE(sig = sig_data))
 
         return self.send(pay)
@@ -291,7 +291,7 @@ class ike_initiator(IKE):
             payload = packet.payloads[t]
             data = payload._data
             if payload._type == 128:
-                Kpeer = RSA_cert(data,'../clientkey.pem',key = '123456',flag = False)
+                Kpeer = RSA_cert(data,'../serverkey.pem',key = '123456',flag = False)
             if payload._type == 10:
                 #tmp = AES128.decrypt(iv,Kpeer,data)
                 tmp = sm4.cbc(0,data,Kpeer,iv)
@@ -391,7 +391,6 @@ class ike_initiator(IKE):
         pay.append(hashpayload)
         return self.send(pay)[:const.IKE_HEADER.size - 4] + struct.pack('!L',len(padding)+const.IKE_HEADER.size) + Encrypted
 
-
 class ike_responder(IKE):
     def __init__(self,address, peer, qdata,left = None,right = None):
         super(ike_responder, self).__init__(address, peer, left, right)
@@ -409,7 +408,7 @@ class ike_responder(IKE):
             ])
         ]))
         pay.append(payloads.CERT(cert_data = open('../ca.der').read()))
-        pay.append(payloads.CERT(cert_data = open('../client.der').read()))
+        pay.append(payloads.CERT(cert_data = open('../server.der').read()))
 
         return self.send(pay)
     
@@ -432,8 +431,8 @@ class ike_responder(IKE):
         pay.append(payloads.ID(Idi_data = enIDI))
         
         self.id_data = idr_data
-        message = self.K + self.Nb + self.id_data + binascii.a2b_hex("04") + open('../client.der').read()
-        sig_data = RSA_sign(message,'../clientkey.pem','123456')
+        message = self.K + self.Nb + self.id_data + binascii.a2b_hex("04") + open('../server.der').read()
+        sig_data = RSA_sign(message,'../serverkey.pem','123456')
         pay.append(payloads.SIGNATURE(sig = sig_data))
 
         return self.send(pay)
@@ -472,7 +471,7 @@ class ike_responder(IKE):
             payload = packet.payloads[t]
             data = payload._data
             if payload._type == 128:
-                Kpeer = RSA_cert(data,'../clientkey.pem',key = '123456',flag = False)
+                Kpeer = RSA_cert(data,'../serverkey.pem',key = '123456',flag = False)
             if payload._type == 10:
                 #tmp = AES128.decrypt(iv,Kpeer,data)
                 tmp = sm4.cbc(0,data,Kpeer,iv)
@@ -501,6 +500,8 @@ class ike_responder(IKE):
 
         self.ivde = self.iven = sk
         self.idpeer = id_data
+
+        return self.init4()
 
     def analysis(self,data):
         if int(binascii.b2a_hex(data[19]),16) == 1:
